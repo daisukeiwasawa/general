@@ -1,0 +1,34 @@
+name: Daily ETC fetch
+
+on:
+  schedule:
+    # 毎日 JST 7:00 = UTC 22:00 (前日)
+    - cron: "0 22 * * *"
+  workflow_dispatch:  # 手動実行も可能
+
+jobs:
+  fetch-and-send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Run
+        env:
+          ETC_USER_ID: ${{ secrets.ETC_USER_ID }}
+          ETC_PASSWORD: ${{ secrets.ETC_PASSWORD }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python scripts/main.py
