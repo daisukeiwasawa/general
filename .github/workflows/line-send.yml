@@ -1,0 +1,40 @@
+name: Send LINE message
+
+# Actions タブから手動で、または Claude / API から起動して
+# 任意のメッセージを LINE に送る。
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "LINE に送るメッセージ"
+        required: true
+        type: string
+      to:
+        description: "送信先のユーザーID/グループID（空なら LINE_TO、それも無ければ友だち全員）"
+        required: false
+        type: string
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Send
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_TO: ${{ secrets.LINE_TO }}
+          MESSAGE: ${{ inputs.message }}
+          TO: ${{ inputs.to }}
+        run: |
+          if [ -n "$TO" ]; then
+            printf '%s' "$MESSAGE" | python scripts/line_send.py --to "$TO"
+          else
+            printf '%s' "$MESSAGE" | python scripts/line_send.py
+          fi
