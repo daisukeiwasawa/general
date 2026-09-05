@@ -1,0 +1,32 @@
+name: Send LINE from outbox
+
+# outbox/message.txt が push されたら、その中身をそのまま LINE に送る。
+# Claude は Actions を起動する権限を持たないが push はできるため、
+# 「ファイルを書いて push する」だけで LINE に送信できるようにする仕組み。
+on:
+  push:
+    paths:
+      - "outbox/message.txt"
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Send
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_TO: ${{ secrets.LINE_TO }}
+        run: |
+          if [ ! -s outbox/message.txt ]; then
+            echo "outbox/message.txt が空のため送信しません。"
+            exit 0
+          fi
+          python scripts/line_send.py < outbox/message.txt
