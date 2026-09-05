@@ -13,11 +13,14 @@ ETC利用照会サービス（https://www.etc-meisai.jp）から毎日明細を�
 │   ├── send_mail.py     # Gmail で送信（CSV添付）
 │   ├── main.py          # エントリポイント
 │   └── line_send.py     # LINE に任意のメッセージを送るCLI（ETC処理とは独立）
+├── outbox/
+│   └── message.txt      # ここに書いてpushするとLINEに送られる
 ├── requirements.txt     # Python 依存パッケージ
 ├── .env.example         # 環境変数テンプレ（ローカル開発用）
 └── .github/workflows/
     ├── daily.yml        # 毎朝7時JST 自動実行（ETC明細）
-    └── line-send.yml    # 手動実行でLINEにメッセージ送信
+    ├── line-send.yml    # 手動実行でLINEにメッセージ送信
+    └── line-outbox.yml  # outbox/message.txt のpushでLINEに送信
 ```
 
 ## セットアップ手順
@@ -82,9 +85,20 @@ python scripts/line_send.py --broadcast "全員へのお知らせ"
 
 失敗すると終了コード 1 とエラー内容を返すので、スクリプトから呼んでも成否を判定できます。
 
-#### 3-4. GitHub Actions から送る
+#### 3-4. GitHub Actions から送る（手動）
 
-ローカルにトークンを置かずに送りたい場合は、**Actions** タブ → "Send LINE message" → **Run workflow** でメッセージを入力すれば送信できます。Claude からも同じワークフローを起動できます。
+ローカルにトークンを置かずに送りたい場合は、**Actions** タブ → "Send LINE message" → **Run workflow** でメッセージを入力すれば送信できます。
+
+#### 3-5. push で送る（Claude 用）
+
+`outbox/message.txt` を書き換えて push すると、"Send LINE from outbox" ワークフローが自動で起動し、その中身がそのまま LINE に送られます。
+
+```bash
+echo "17時に出発します" > outbox/message.txt
+git commit -am "LINE送信" && git push
+```
+
+Claude は Actions を起動する権限を持たない一方で push はできるため、この経路なら Claude 側の操作だけで LINE に送信できます。ファイルが空のときは送信しません。
 
 ### 4. 手動でテスト実行
 
