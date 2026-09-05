@@ -39,7 +39,8 @@ ETC利用照会サービス（https://www.etc-meisai.jp）から毎日明細を�
 | `GMAIL_APP_PASSWORD` | Gmail のアプリパスワード（後述） |
 | `MAIL_TO` | 送信先メールアドレス（カンマ区切りで複数可） |
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging API のチャネルアクセストークン（LINE送信を使う場合のみ） |
-| `LINE_TO` | LINE の送信先ユーザーID（任意。未設定なら友だち全員へ配信） |
+| `LINE_TARGETS` | 宛先の一覧。「名前=ID」を1行に1つ（任意。名前で宛先を指定できる） |
+| `LINE_TO` | 宛先が指定されなかったときの既定の送信先（任意。未設定なら友だち全員へ配信） |
 
 ### 2. Gmail アプリパスワードの取得
 
@@ -72,16 +73,22 @@ ETC利用照会サービス（https://www.etc-meisai.jp）から毎日明細を�
 # 接続確認（送信はしない。公式アカウント名が表示されれば成功）
 python scripts/line_send.py --check
 
-# メッセージを送る
+# 登録済みの宛先名を確認する
+python scripts/line_send.py --list-targets
+
+# メッセージを送る（宛先は LINE_TO、未設定なら友だち全員）
 python scripts/line_send.py "17時に出発します"
+
+# 宛先を名前で指定して送る
+python scripts/line_send.py --to 営業チーム "明日の会議は10時からです"
+
+# 宛先をIDで直接指定して送る
+python scripts/line_send.py --to Cxxxxxxxxxxxx "特定のグループに送る"
 
 # 標準入力から送る（コマンドの結果をそのまま流し込める）
 git log --oneline -5 | python scripts/line_send.py
 
-# 宛先を指定して送る
-python scripts/line_send.py --to Uxxxxxxxxxxxx "特定の相手に送る"
-
-# LINE_TO を無視して友だち全員に送る
+# 宛先を無視して友だち全員に送る
 python scripts/line_send.py --broadcast "全員へのお知らせ"
 ```
 
@@ -100,6 +107,16 @@ echo "17時に出発します" > outbox/message.txt
 git commit -am "LINE送信" && git push
 ```
 
+宛先を指定したいときは、**本文の1行目に `To: 宛先名`** を書きます。
+
+```
+To: 営業チーム
+明日の会議は10時からです。
+場所は会議室Aです。
+```
+
+`To:` 行を省略すると `LINE_TO` の宛先へ、それも未設定なら友だち全員へ送られます。宛先名の代わりにIDを直接書いても構いません。
+
 Claude は Actions を起動する権限を持たない一方で push はできるため、この経路なら Claude 側の操作だけで LINE に送信できます。ファイルが空のときは送信しません。
 
 ### 3-6. グループに送りたい場合
@@ -115,7 +132,25 @@ Claude は Actions を起動する権限を持たない一方で push はでき�
 7. 「種別: group」の行のIDを GitHub Secrets の `LINE_TO` に登録する
 8. 取得できたら Webhook URL を削除し、GAS のデプロイも削除する
 
-`LINE_TO` を設定すると、以降の送信はすべてその宛先への push になります（友だち全員への broadcast ではなくなります）。
+#### 3-7. 宛先に名前をつける
+
+複数のグループを使い分ける場合は、GitHub Secrets に `LINE_TARGETS` を登録します。「名前=ID」を1行に1つ書きます。
+
+```
+営業チーム=C1a2b3c4d5e6f7890abcdef1234567890
+開発チーム=C0987654321fedcba0987654321fedcba
+自分=U1a2b3c4d5e6f7890abcdef1234567890
+```
+
+登録すると、送信時にIDではなく名前で宛先を指定できます。
+
+- outbox 方式: 本文の1行目に `To: 営業チーム`
+- CLI: `python scripts/line_send.py --to 営業チーム "メッセージ"`
+- 手動ワークフロー: 「送信先」の入力欄に `営業チーム`
+
+未登録の名前を指定した場合は、打ち間違いを見逃さないようエラーになります。登録済みの名前は `python scripts/line_send.py --list-targets` で確認できます。
+
+`LINE_TO` は、宛先が指定されなかったときの既定の送信先として使われます。設定しておくと、`To:` 行を省いたときにその宛先へ送られます（未設定なら友だち全員への broadcast）。
 
 ### 4. 手動でテスト実行
 

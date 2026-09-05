@@ -1,6 +1,7 @@
 name: Send LINE from outbox
 
-# outbox/message.txt が push されたら、その中身をそのまま LINE に送る。
+# outbox/message.txt が push されたら、その中身を LINE に送る。
+# 本文の先頭に「To: 宛先名」の行があれば、その宛先へ送る。
 # Claude は Actions を起動する権限を持たないが push はできるため、
 # 「ファイルを書いて push する」だけで LINE に送信できるようにする仕組み。
 on:
@@ -24,9 +25,10 @@ jobs:
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_TO: ${{ secrets.LINE_TO }}
+          LINE_TARGETS: ${{ secrets.LINE_TARGETS }}
         run: |
           if [ ! -s outbox/message.txt ]; then
             echo "outbox/message.txt が空のため送信しません。"
             exit 0
           fi
-          python scripts/line_send.py < outbox/message.txt
+          python scripts/line_send.py --parse-header < outbox/message.txt

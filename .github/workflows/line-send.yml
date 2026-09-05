@@ -10,7 +10,7 @@ on:
         required: true
         type: string
       to:
-        description: "送信先のユーザーID/グループID（空なら LINE_TO、それも無ければ友だち全員）"
+        description: "送信先。LINE_TARGETS の宛先名かID（空なら LINE_TO、それも無ければ友だち全員）"
         required: false
         type: string
 
@@ -30,6 +30,7 @@ jobs:
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_TO: ${{ secrets.LINE_TO }}
+          LINE_TARGETS: ${{ secrets.LINE_TARGETS }}
           MESSAGE: ${{ inputs.message }}
           TO: ${{ inputs.to }}
         run: |
