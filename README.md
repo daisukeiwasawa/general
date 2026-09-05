@@ -15,6 +15,8 @@ ETC利用照会サービス（https://www.etc-meisai.jp）から毎日明細を�
 │   └── line_send.py     # LINE に任意のメッセージを送るCLI（ETC処理とは独立）
 ├── outbox/
 │   └── message.txt      # ここに書いてpushするとLINEに送られる
+├── tools/
+│   └── gas_line_id_logger.gs  # グループID取得用のGASスクリプト（使い捨て）
 ├── requirements.txt     # Python 依存パッケージ
 ├── .env.example         # 環境変数テンプレ（ローカル開発用）
 └── .github/workflows/
@@ -99,6 +101,21 @@ git commit -am "LINE送信" && git push
 ```
 
 Claude は Actions を起動する権限を持たない一方で push はできるため、この経路なら Claude 側の操作だけで LINE に送信できます。ファイルが空のときは送信しません。
+
+### 3-6. グループに送りたい場合
+
+グループへの送信には `LINE_TO` にグループID（`C` で始まる文字列）が必要です。グループIDは Webhook 経由でしか取得できないため、`tools/gas_line_id_logger.gs` を一時的に使って取得します。
+
+1. LINE公式アカウントマネージャー → 設定 → アカウント設定 → 「グループ・複数人トークへの参加を許可する」を有効にする
+2. https://script.google.com で新規プロジェクトを作り、`tools/gas_line_id_logger.gs` の内容を貼り付ける
+3. 「デプロイ」→「新しいデプロイ」→ ウェブアプリ（実行: 自分 / アクセス: 全員）→ `/exec` のURLをコピー
+4. LINE公式アカウントマネージャー → 設定 → 応答設定 → Webhook を有効化し、Messaging API の Webhook URL にそのURLを設定
+5. 公式アカウントをグループに招待し、グループ内で何か発言する
+6. `/exec` のURLをブラウザで開くと、記録されたIDが表示される
+7. 「種別: group」の行のIDを GitHub Secrets の `LINE_TO` に登録する
+8. 取得できたら Webhook URL を削除し、GAS のデプロイも削除する
+
+`LINE_TO` を設定すると、以降の送信はすべてその宛先への push になります（友だち全員への broadcast ではなくなります）。
 
 ### 4. 手動でテスト実行
 
