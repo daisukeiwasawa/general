@@ -1,0 +1,30 @@
+name: Look up LINE names
+
+# outbox/lookup.txt に書いたID（1行に1つ）の名前を調べて、実行ログに出す。
+# メッセージの送信は行わない。
+on:
+  push:
+    paths:
+      - "outbox/lookup.txt"
+
+jobs:
+  lookup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Look up
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+        run: |
+          if [ ! -s outbox/lookup.txt ]; then
+            echo "outbox/lookup.txt が空のため何もしません。"
+            exit 0
+          fi
+          python scripts/line_lookup.py < outbox/lookup.txt
