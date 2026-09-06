@@ -2,7 +2,10 @@
 
 ETC利用照会サービス（https://www.etc-meisai.jp）から毎日明細をダウンロードして、Gmail で送信するツールです。GitHub Actions で毎朝7時（JST）に自動実行されます。
 
-あわせて、**Claude やコマンドラインから LINE に任意のメッセージを送る**ためのツール（`scripts/line_send.py`）も入っています。
+あわせて次のツールも入っています。
+
+- **イトーキ配送の日次売上計上**（`scripts/itoki_daily.py`）… 代入さまからのメールをもとに、スプレッドシートへの記入と LINE 報告を自動化します。
+- **LINE 送信CLI**（`scripts/line_send.py`）… Claude やコマンドラインから LINE に任意のメッセージを送ります。
 
 ## ファイル構成
 
@@ -12,13 +15,28 @@ ETC利用照会サービス（https://www.etc-meisai.jp）から毎日明細を�
 │   ├── fetch_etc.py     # Playwright でログイン → CSVダウンロード
 │   ├── send_mail.py     # Gmail で送信（CSV添付）
 │   ├── main.py          # エントリポイント
-│   └── line_send.py     # LINE に任意のメッセージを送るCLI（ETC処理とは独立）
+│   ├── line_send.py     # LINE に任意のメッセージを送るCLI（ETC処理とは独立）
+│   ├── itoki_daily.py   # イトーキ配送の日次売上計上（エントリポイント）
+│   └── itoki/
+│       ├── mail.py      # 代入さまのメールを IMAP で取得
+│       ├── manifest.py  # 配車表PDF → 配送先の読み取り
+│       ├── rates.py     # 距離から区分1〜4を判定
+│       ├── sheet.py     # スプレッドシート書き込み・シフト表参照
+│       ├── notify.py    # LINE 文面の組み立て
+│       └── state.py     # 処理済みメールの台帳
+├── config/
+│   └── itoki_rates.json # 単価表と区分ルール（金額を変えるならここ）
+├── apps_script/
+│   └── Code.gs          # スプレッドシート側に貼り付けるウェブアプリ
+├── state/
+│   └── itoki_processed.json  # 処理済みメール（自動更新）
 ├── outbox/
 │   └── message.txt      # ここに書いてpushするとLINEに送られる
 ├── requirements.txt     # Python 依存パッケージ
 ├── .env.example         # 環境変数テンプレ（ローカル開発用）
 └── .github/workflows/
     ├── daily.yml        # 毎朝7時JST 自動実行（ETC明細）
+    ├── itoki-daily.yml  # 毎朝8時JST 自動実行（イトーキ配送の売上計上）
     ├── line-send.yml    # 手動実行でLINEにメッセージ送信
     └── line-outbox.yml  # outbox/message.txt のpushでLINEに送信
 ```
@@ -126,3 +144,98 @@ python scripts/main.py
 - 利用規約は適宜確認してください。
 - **チャネルアクセストークンやチャネルシークレットは絶対にリポジトリにコミットしない**でください。画面共有やスクリーンショットで漏れた場合は、LINE Developers コンソールから速やかに再発行してください。
 - LINE のブロードキャスト／プッシュ配信は無料プランだと月間の送信数に上限があります（無料枠は月200通程度）。
+
+---
+
+## イトーキ配送の日次売上計上
+
+代入さま（㈱インフォゲート）から届く業務連絡メールをもとに、毎朝8時（JST）に次を自動で行います。
+
+1. メールを IMAP で取得し、添付の配車表 PDF（F30.pdf）を取り出す
+2. 配車表は**スキャン画像でテキストが入っていない**ため、ページを画像に起こして Claude に読ませ、配送日・コース・台数・配送先を構造化データで受け取る
+3. プロロジスパーク草加から配送先までの片道距離を測り、お見積りの区分1〜4に当てはめて売上（税抜）を出す
+4. スプレッドシート「エレロジ売上」の対象月タブ → `イトーキ配送` → `エレロジ売上（税抜）` に記入
+5. シフト表でその日のイトーキ担当ドライバーを調べ、エレロジ日報報告用 LINE でその人にメンションして報告
+
+### 単価の当てはめ方
+
+| 区分 | 条件 | 単価（税抜） |
+|---|---|---|
+| 1 | 埼玉県・東京都下・北関東（群馬/茨城/栃木）で草加から片道100km圏内 | 32,000円 |
+| 2 | 北関東で草加から片道100km以上 | 36,000円 |
+| 3 | 長野県の千曲市まで | 43,000円 |
+| 4 | 長野県の千曲市以降 | 52,000円 |
+
+- 1便の売上は、その便で**いちばん遠い（単価の高い）配送先**で決めます。台数が2台以上なら台数分を掛けます。
+- 距離は Google Maps（`GOOGLE_MAPS_API_KEY` があれば）→ OSRM → 直線距離×1.3 の順に測ります。100km の境界±10km に入ったときは自動計上せず確認を求めます。
+- お見積りに載っていない都道府県（千葉・神奈川など）に行った場合も、自動計上せず LINE で手入力をお願いします。
+- 時間割増（1時間 3,300円）は配車表から自動判定できないため計上しません。必要なら手で足してください。
+- よく行く現場は `config/itoki_rates.json` の `overrides` に住所の一部と区分を登録しておくと、距離計算をせず確実に判定できます。
+
+### セットアップ
+
+#### 1. スプレッドシート側にウェブアプリを置く
+
+Claude や GitHub Actions から Google のセルを直接編集する手段が無いため、シート側に小さなウェブアプリを置いて、そこに書き込みを依頼する形にしています。
+
+1. 「エレロジ売上」のスプレッドシートを開く → **拡張機能 → Apps Script**
+2. `apps_script/Code.gs` の中身をそのまま貼り付けて保存
+3. 左の歯車（プロジェクトの設定）→ **スクリプト プロパティ** に次を追加
+   - `TOKEN` … 好きな長い合言葉（あとで `SHEET_WEBAPP_TOKEN` に同じ値を入れる）
+   - `SHIFT_FILE_ID` … シフト表のファイルID（シフト表のURLの `/d/` と `/edit` の間の文字列）
+4. シフト表が `.xlsx` 形式のままなら、左メニューの **サービス** ＋ から **Drive API** を追加する（読むときに一時変換するため）
+5. **デプロイ → 新しいデプロイ → 種類「ウェブアプリ」**
+   - 次のユーザーとして実行: **自分**
+   - アクセスできるユーザー: **全員**
+6. 出てきた `/exec` で終わる URL を控える（`SHEET_WEBAPP_URL` に入れる）
+
+> コードを直したときは「デプロイを管理」→ 鉛筆アイコン → バージョン「新バージョン」で更新します。URL は変わりません。
+
+#### 2. GitHub Secrets を登録
+
+| Secret 名 | 内容 |
+|---|---|
+| `ANTHROPIC_API_KEY` | 配車表PDFを読ませるための Claude API キー |
+| `ITOKI_IMAP_USER` | 代入さまのメールが届く Gmail アドレス（`daisuke.iwasawa@elelogi.com`） |
+| `ITOKI_IMAP_PASSWORD` | 上記アカウントの Gmail アプリパスワード |
+| `SHEET_WEBAPP_URL` | 手順1で控えたウェブアプリの URL |
+| `SHEET_WEBAPP_TOKEN` | 手順1の `TOKEN` と同じ合言葉 |
+| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging API のチャネルアクセストークン |
+| `LINE_TO` | エレロジ日報報告用 LINE グループのグループID |
+| `LINE_MENTION_MAP` | ドライバー名と LINE ユーザーIDの対応（下記） |
+| `LINE_MENTION_IDS` | シフト表を引けなかったときの既定のメンション先（カンマ区切り） |
+| `GOOGLE_MAPS_API_KEY` | 任意。あれば道のりを正確に測る |
+
+`LINE_MENTION_MAP` はシフト表に書かれている**ドライバー名そのまま**をキーにした JSON です。
+
+```json
+{"宮野顕":"Uxxxxxxxx","一瀬修一":"Uyyyyyyyy","岩澤大輔":"Uzzzzzzzz"}
+```
+
+現在のシフト表でイトーキを担当しているのは **宮野顕 / 一瀬修一 / 岩澤大輔** の3名です。
+ユーザーIDが未登録の人がいる場合はメンションを飛ばし、その旨を本文に書いて送ります。
+
+> メンションは、公式アカウントとその人が**同じグループに参加している**必要があります。
+
+#### 3. 動作確認
+
+**Actions** タブ → "Itoki daily sales" → **Run workflow** で、`dry_run` にチェックを入れて実行すると、
+判定結果だけがログに出ます（シート記入も LINE 送信も行いません）。
+
+ローカルで試す場合:
+
+```bash
+pip install anthropic
+sudo apt-get install -y poppler-utils   # 配車表PDFを画像にするのに必要
+
+python scripts/itoki_daily.py --dry-run              # 判定だけ
+python scripts/itoki_daily.py --date 2026-09-07      # 特定の配送日だけ
+python scripts/itoki_daily.py --force                # 処理済みメールもやり直す
+python scripts/itoki_daily.py --overwrite            # 既に入っている値を上書き
+```
+
+### 二重計上の防止
+
+処理したメールの Message-ID を `state/itoki_processed.json` に記録し、次回以降は飛ばします。
+また、シートのセルに既に値が入っている場合は上書きせず、その旨を LINE でお知らせします
+（上書きしたいときは `--overwrite`、または Actions の手動実行から）。

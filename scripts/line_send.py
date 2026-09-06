@@ -7,6 +7,8 @@ Claude やシェルから任意のテキストを LINE に投げるために使�
     python scripts/line_send.py --to Uxxxxxxxx "特定の相手に送る"
     python scripts/line_send.py --check      # 接続確認（送信はしない）
 
+    python scripts/line_send.py --mention U1234,U5678 "メンション付きで送る"
+
 必要な環境変数（.env でも可）:
     LINE_CHANNEL_ACCESS_TOKEN  チャネルアクセストークン（必須）
     LINE_TO                    送信先のユーザーID/グループID
@@ -68,19 +70,56 @@ def _request(path: str, payload: dict | None = None) -> dict:
     return json.loads(body) if body.strip() else {}
 
 
-def send_text(text: str, to: str | None = None, broadcast: bool = False) -> str:
+def build_message(text: str, mentions: list[str] | None = None) -> dict:
+    """送信用のメッセージオブジェクトを組み立てる。
+
+    mentions を渡すと textV2 形式にして本文の先頭に実メンションを差し込む。
+    "all" を混ぜるとグループ全員へのメンションになる。メンションは相手が
+    グループに参加していて、かつ公式アカウントも同じグループにいる必要がある。
+    """
+    text = text.strip()
+    if not text:
+        raise LineError("送信するテキストが空です。")
+
+    if not mentions:
+        if len(text) > MAX_TEXT_LEN:
+            text = text[: MAX_TEXT_LEN - 3] + "..."
+        return {"type": "text", "text": text}
+
+    # textV2 では {} がプレースホルダ記号なので、本文からは取り除いておく。
+    body = text.replace("{", "［").replace("}", "］")
+
+    substitution = {}
+    placeholders = []
+    for index, target in enumerate(mentions, start=1):
+        key = f"m{index}"
+        placeholders.append("{" + key + "}")
+        mentionee = (
+            {"type": "all"}
+            if target.strip().lower() == "all"
+            else {"type": "user", "userId": target.strip()}
+        )
+        substitution[key] = {"type": "mention", "mentionee": mentionee}
+
+    combined = " ".join(placeholders) + "\n" + body
+    if len(combined) > MAX_TEXT_LEN:
+        combined = combined[: MAX_TEXT_LEN - 3] + "..."
+
+    return {"type": "textV2", "text": combined, "substitution": substitution}
+
+
+def send_text(
+    text: str,
+    to: str | None = None,
+    broadcast: bool = False,
+    mentions: list[str] | None = None,
+) -> str:
     """LINE にテキストを送り、送信方法を説明する文字列を返す。
 
     to を渡せばその宛先へ push。省略時は環境変数 LINE_TO を使い、
     それも無い（または broadcast=True）なら友だち全員へ broadcast する。
     """
-    text = text.strip()
-    if not text:
-        raise LineError("送信するテキストが空です。")
-    if len(text) > MAX_TEXT_LEN:
-        text = text[: MAX_TEXT_LEN - 3] + "..."
-
-    message = {"type": "text", "text": text}
+    message = build_message(text, mentions)
     destination = None if broadcast else (to or os.environ.get("LINE_TO", "").strip())
 
     if destination:
@@ -112,6 +151,10 @@ def main() -> int:
         help="LINE_TO を無視して友だち全員に送る",
     )
     parser.add_argument(
+        "--mention",
+        help="メンションする相手のユーザーIDをカンマ区切りで指定（all でグループ全員）",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="送信せずに接続確認だけ行う",
@@ -132,7 +175,8 @@ def main() -> int:
             return 0
 
         text = " ".join(args.message) if args.message else sys.stdin.read()
-        result = send_text(text, to=args.to, broadcast=args.broadcast)
+        mentions = [m for m in (args.mention or "").split(",") if m.strip()]
+        result = send_text(text, to=args.to, broadcast=args.broadcast, mentions=mentions)
         print(f"送信しました ({result})")
         return 0
     except LineError as e:

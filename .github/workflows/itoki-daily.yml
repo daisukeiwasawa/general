@@ -1,0 +1,81 @@
+name: Itoki daily sales
+
+# 毎朝8時（JST）に、代入さまからの業務連絡メールをもとに
+# イトーキ配送の売上をスプレッドシートへ記入し、LINE で報告する。
+on:
+  schedule:
+    - cron: "0 23 * * *" # 23:00 UTC = 翌08:00 JST
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "判定だけ行い、シート記入と LINE 送信はしない"
+        required: false
+        type: boolean
+        default: false
+      force:
+        description: "処理済みのメールも改めて処理する"
+        required: false
+        type: boolean
+        default: false
+      since_days:
+        description: "何日前までのメールを見るか"
+        required: false
+        type: string
+        default: "7"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: itoki-daily
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pip install anthropic
+
+      - name: Run
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ITOKI_IMAP_USER: ${{ secrets.ITOKI_IMAP_USER }}
+          ITOKI_IMAP_PASSWORD: ${{ secrets.ITOKI_IMAP_PASSWORD }}
+          ITOKI_MAIL_SENDER: ${{ vars.ITOKI_MAIL_SENDER }}
+          SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
+          SHEET_WEBAPP_TOKEN: ${{ secrets.SHEET_WEBAPP_TOKEN }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_TO: ${{ secrets.LINE_TO }}
+          LINE_MENTION_IDS: ${{ secrets.LINE_MENTION_IDS }}
+          LINE_MENTION_MAP: ${{ secrets.LINE_MENTION_MAP }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+        run: |
+          ARGS="--since-days ${{ inputs.since_days || '7' }}"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          python scripts/itoki_daily.py $ARGS
+
+      - name: Commit processed state
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          if git diff --quiet -- state/; then
+            echo "処理済み台帳に変更はありません。"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/
+          git commit -m "イトーキ配送: 処理済みメールを記録"
+          git push
