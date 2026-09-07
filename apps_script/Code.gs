@@ -272,3 +272,49 @@ function findShiftDateColumn(sheet, dateRow, year, month, day) {
   }
   return 0;
 }
+
+/* ------------------------------------------------------------------ *
+ * 動作確認用
+ *
+ * Apps Script エディタ上部の関数選択でこれらを選び「実行」すると、
+ * 設定が正しいかを送信なしで確かめられる（結果は「実行ログ」に出る）。
+ * 初回は Google の承認画面が出るので、許可すること。
+ * ------------------------------------------------------------------ */
+
+/** 売上シートの書き込み先セルを、書き込まずに確認する。 */
+function testFindCell() {
+  var today = new Date();
+  var date = Utilities.formatDate(today, 'Asia/Tokyo', 'yyyy-MM-dd');
+
+  var props = PropertiesService.getScriptProperties();
+  Logger.log('TOKEN 設定済み: ' + (props.getProperty('TOKEN') ? 'はい' : 'いいえ'));
+  Logger.log('SHIFT_FILE_ID 設定済み: ' + (props.getProperty('SHIFT_FILE_ID') ? 'はい' : 'いいえ'));
+
+  var parts = date.split('-');
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetName = parts[0] + '.' + parts[1];
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    Logger.log('タブ「' + sheetName + '」が見つかりません。');
+    return;
+  }
+
+  var blockCol = findBlockColumn(sheet, 'イトーキ配送');
+  var valueCol = blockCol ? findColumnInBlock(sheet, blockCol, 'エレロジ売上') : 0;
+  var row = blockCol ? findDateRow(sheet, blockCol, Number(parts[0]), Number(parts[1]), Number(parts[2])) : 0;
+
+  if (!blockCol || !valueCol || !row) {
+    Logger.log('見つかりませんでした（ブロック列=' + blockCol + ' 値列=' + valueCol + ' 行=' + row + '）');
+    return;
+  }
+  var cell = sheet.getRange(row, valueCol);
+  Logger.log(date + ' の書き込み先: ' + sheetName + ' の ' + cell.getA1Notation() +
+             '（現在の値: ' + cell.getValue() + '）');
+}
+
+/** シフト表を読めるか、今日のイトーキ担当を引いて確認する。 */
+function testShiftLookup() {
+  var date = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
+  Logger.log(JSON.stringify(lookupShift({ token: token, date: date, client: 'イトーキ' })));
+}
