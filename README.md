@@ -36,7 +36,7 @@ ETC利用照会サービス（https://www.etc-meisai.jp）から毎日明細を�
 ├── .env.example         # 環境変数テンプレ（ローカル開発用）
 └── .github/workflows/
     ├── daily.yml        # 毎朝7時JST 自動実行（ETC明細）
-    ├── itoki-daily.yml  # 毎朝8時JST 自動実行（イトーキ配送の売上計上）
+    ├── itoki-daily.yml  # 毎日15時JST 自動実行（イトーキ配送の売上計上）
     ├── line-send.yml    # 手動実行でLINEにメッセージ送信
     └── line-outbox.yml  # outbox/message.txt のpushでLINEに送信
 ```
@@ -149,7 +149,7 @@ python scripts/main.py
 
 ## イトーキ配送の日次売上計上
 
-代入さま（㈱インフォゲート）から届く業務連絡メールをもとに、毎朝8時（JST）に次を自動で行います。
+代入さま（㈱インフォゲート）から届く業務連絡メールをもとに、毎日15時（JST）に次を自動で行います。
 
 1. メールを IMAP で取得し、添付の配車表 PDF（F30.pdf）を取り出す
 2. 配車表は**スキャン画像でテキストが入っていない**ため、ページを画像に起こして Claude に読ませ、配送日・コース・台数・配送先を構造化データで受け取る

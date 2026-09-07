@@ -1,10 +1,10 @@
 name: Itoki daily sales
 
-# 毎朝8時（JST）に、代入さまからの業務連絡メールをもとに
+# 毎日15時（JST）に、代入さまからの業務連絡メールをもとに
 # イトーキ配送の売上をスプレッドシートへ記入し、LINE で報告する。
 on:
   schedule:
-    - cron: "0 23 * * *" # 23:00 UTC = 翌08:00 JST
+    - cron: "0 6 * * *" # 06:00 UTC = 15:00 JST
   workflow_dispatch:
     inputs:
       dry_run:
